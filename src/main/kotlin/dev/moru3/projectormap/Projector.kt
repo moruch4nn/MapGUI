@@ -1,12 +1,13 @@
 package dev.moru3.projectormap
 
 import dev.moru3.minepie.events.EventRegister.Companion.registerEvent
-import net.minecraft.server.v1_16_R3.EntityItemFrame
+import net.minecraft.server.v1_16_R3.*
 import org.bukkit.Bukkit
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.block.BlockFace
 import org.bukkit.block.BlockFace.*
+import org.bukkit.craftbukkit.v1_16_R3.CraftWorld
 import org.bukkit.craftbukkit.v1_16_R3.entity.CraftPlayer
 import org.bukkit.entity.Player
 import org.bukkit.event.player.PlayerJoinEvent
@@ -61,7 +62,7 @@ class Projector(val bytes: List<List<Byte>>, val backgroundColor: Color = Color.
     val mapIds = mapItems.map { it.map { (it.itemMeta as MapMeta).mapView!!.id } }
 
     // プレイヤーに表示しているアイテムフレーム(日本語名忘れた)のエンティティID
-    val playerFrames = mutableMapOf<Player,List<List<Long>>>()
+    val playerFrames = mutableMapOf<Player,List<List<EntityItemFrame>>>()
 
     init {
         bytes.forEachIndexed { y, bytes -> bytes.forEachIndexed { x, byte ->
@@ -76,61 +77,52 @@ class Projector(val bytes: List<List<Byte>>, val backgroundColor: Color = Color.
     }
 
     fun send(player: Player, location: Location, blockFace: BlockFace) {
-        var wRelativeX = 0
-        var wRelativeY = 0
-        var wRelativeZ = 0
-        var hRelativeX = 0
-        var hRelativeY = 0
-        var hRelativeZ = 0
-        when(blockFace) {
-            NORTH -> {
-                hRelativeY = 1
-                wRelativeX = -1
-            }
-            EAST -> {
-                hRelativeY = 1
-                wRelativeZ = -1
-            }
-            SOUTH -> {
-                hRelativeY = 1
-                wRelativeX = 1
-            }
-            WEST -> {
-                hRelativeY = 1
-                wRelativeZ = 1
-            }
-            UP -> {
-                hRelativeZ = 1
-                wRelativeX = 1
-            }
-            DOWN -> {
-                hRelativeZ = -1
-                wRelativeX = 1
-            }
-            else -> {}
-        }
+        // プレイヤーにまだアイテムフレームを表示してない場合はパケットで表示させる
         if(playerFrames.containsKey(player)) {
-            MutableList(heightOfMap) { h -> MutableList(widthOfMap) { w ->
-
+            var wRelativeX = 0
+            var wRelativeZ = 0
+            var hRelativeY = 0
+            var hRelativeZ = 0
+            val direction: EnumDirection
+            when(blockFace) {
+                NORTH -> {
+                    direction = EnumDirection.NORTH
+                    hRelativeY = 1
+                    wRelativeX = -1
+                }
+                EAST -> {
+                    direction = EnumDirection.EAST
+                    hRelativeY = 1
+                    wRelativeZ = -1
+                }
+                SOUTH -> {
+                    direction = EnumDirection.SOUTH
+                    hRelativeY = 1
+                    wRelativeX = 1
+                }
+                WEST -> {
+                    direction = EnumDirection.WEST
+                    hRelativeY = 1
+                    wRelativeZ = 1
+                }
+                UP -> {
+                    direction = EnumDirection.UP
+                    hRelativeZ = 1
+                    wRelativeX = 1
+                }
+                DOWN -> {
+                    direction = EnumDirection.DOWN
+                    hRelativeZ = -1
+                    wRelativeX = 1
+                }
+                else -> { return }
+            }
+            playerFrames[player] = MutableList(heightOfMap) { h -> MutableList(widthOfMap) { w ->
+                EntityItemFrame((location.world as CraftWorld).handle, BlockPosition(location.x+(w*wRelativeX),location.y+(hRelativeY*h),location.z+((hRelativeZ*h)+(w*wRelativeZ))), direction)
             } }
         }
-        data.forEach { line -> line.forEach {
-
-        } }
-        (player as CraftPlayer).handle.playerConnection
-    }
-}
-
-fun main() {
-    repeat(10) {
-        thread {
-            repeat(10) {
-                thread {
-                    Projector(MutableList(1080) { MutableList(1920) { 0.toByte() } })
-                }
-            }
-        }
-        Thread.sleep(1000)
-        println(it)
+        // 全マップに画像を表示するパケットを作成し、二重リストになっているため回しやすいように一次元化
+        val packets = data.mapIndexed { h, line -> line.mapIndexed { w, bytes -> PacketPlayOutMap(playerFrames[player]!![h][w].id, 0, true, false, listOf(), bytes.toByteArray(), 0, 0, 128, 128) } }.flatten()
+        packets.forEach { (player as CraftPlayer).handle.playerConnection.sendPacket(it) }
     }
 }
