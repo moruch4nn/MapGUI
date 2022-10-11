@@ -1,3 +1,7 @@
 version: 1.0
 name: MapGUI
 main: dev.moru3.projectormap.ProjectorMap
+api-version: 1.16
+commands:
+  test:
+    description: test
